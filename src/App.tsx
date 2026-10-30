@@ -1,26 +1,21 @@
 import { useMemo, useState } from 'react';
 import { useGame } from './ui/useGame';
-import { usedExactKeysWithDead } from './tracking/state';
 import { recommend } from './strategy/engine';
 import { SetupScreen } from './components/SetupScreen';
 import { PlayScreen } from './components/PlayScreen';
 import { TrackerScreen } from './components/TrackerScreen';
-import { ScoresScreen } from './components/ScoresScreen';
 
-type Tab = 'play' | 'tracker' | 'scores';
+type Tab = 'play' | 'cards';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'play', label: 'Play' },
-  { id: 'tracker', label: 'Cards' },
-  { id: 'scores', label: 'Scores' }
+  { id: 'cards', label: 'Cards' }
 ];
 
 export function App() {
   const { game, commit, undo, reset, canUndo, error, clearError } = useGame();
   const [tab, setTab] = useState<Tab>('play');
   const [confirmReset, setConfirmReset] = useState(false);
-
-  const used = useMemo(() => usedExactKeysWithDead(game), [game]);
 
   const rec = useMemo(() => {
     if (game.phase !== 'playing' || game.turn !== 0) return null;
@@ -71,13 +66,11 @@ export function App() {
 
       <main>
         {game.phase === 'setup' ? (
-          <SetupScreen game={game} used={used} dispatch={commit} />
+          <SetupScreen game={game} dispatch={commit} />
         ) : tab === 'play' ? (
-          <PlayScreen game={game} rec={rec} used={used} dispatch={commit} />
-        ) : tab === 'tracker' ? (
-          <TrackerScreen game={game} used={used} dispatch={commit} />
+          <PlayScreen game={game} rec={rec} dispatch={commit} />
         ) : (
-          <ScoresScreen game={game} dispatch={commit} />
+          <TrackerScreen game={game} dispatch={commit} />
         )}
       </main>
 

@@ -1,12 +1,12 @@
-import { Card, cardValue } from '../game/cards';
+import { RANKS, Rank, rankValue } from '../game/cards';
 import { Entry } from '../game/entries';
 import { legalCaptures } from '../game/rules';
 import { Game } from '../tracking/state';
-import { openEntries, opponentHandSizes, unseenCards } from '../tracking/selectors';
+import { openEntries, opponentHandSizes, remainingRankCopies } from '../tracking/selectors';
 import { mulberry32, shuffle } from './random';
 
 export interface World {
-  hands: [Card[], Card[]];
+  hands: [Rank[], Rank[]];
 }
 
 export interface Threat {
@@ -16,13 +16,19 @@ export interface Threat {
 }
 
 /**
- * Samples plausible hidden-card worlds consistent with everything the user has
- * entered. Unknown and rank-only entries are resolved first, then the remaining
- * unseen cards are distributed into the two opponents' hands.
+ * Samples plausible hidden-card worlds. Unknown entries are resolved into a
+ * random remaining rank copy first, then the rest are dealt into the two
+ * opponents' hands.
  */
 export function sampleWorlds(g: Game, iterations: number, seed = 0x5eed): World[] {
   const rng = mulberry32(seed);
-  const basePool = unseenCards(g);
+  const remaining = remainingRankCopies(g);
+  const basePool: Rank[] = [];
+  for (const rank of RANKS) {
+    const copies = remaining.get(rank) ?? 0;
+    for (let i = 0; i < copies; i += 1) basePool.push(rank);
+  }
+
   const open = openEntries(g);
   const sizes = opponentHandSizes(g);
   const worlds: World[] = [];
@@ -31,26 +37,13 @@ export function sampleWorlds(g: Game, iterations: number, seed = 0x5eed): World[
     let pool = [...basePool];
     let ok = true;
 
-    for (const e of open) {
-      if (e.kind !== 'rank') continue;
-      const candidates = pool.filter((c) => c.rank === e.rank);
-      if (candidates.length === 0) {
-        ok = false;
-        break;
-      }
-      const chosen = candidates[Math.floor(rng() * candidates.length)];
-      pool = pool.filter((c) => c !== chosen);
-    }
-    if (!ok) continue;
-
-    for (const e of open) {
-      if (e.kind !== 'unknown') continue;
+    for (const _entry of open) {
       if (pool.length === 0) {
         ok = false;
         break;
       }
-      const idx = Math.floor(rng() * pool.length);
-      pool = pool.filter((_, j) => j !== idx);
+      const index = Math.floor(rng() * pool.length);
+      pool = pool.filter((_, j) => j !== index);
     }
     if (!ok) continue;
 
@@ -75,8 +68,8 @@ export function assessThreat(table: Entry[], worlds: World[]): Threat {
     let canCapture = false;
     let canSweep = false;
     for (const hand of world.hands) {
-      for (const card of hand) {
-        const captures = legalCaptures(table, cardValue(card));
+      for (const rank of hand) {
+        const captures = legalCaptures(table, rankValue(rank));
         if (captures.length > 0) canCapture = true;
         if (captures.some((c) => c.length === table.length)) canSweep = true;
         if (canCapture && canSweep) break;

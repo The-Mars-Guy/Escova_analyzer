@@ -1,8 +1,6 @@
-import { Card, CardKey, Rank, cardKey, cardValue, isRank, rankValue, valueToRank } from '../game/cards';
-import { Entry, entryValue, exactEntry, rankEntry, unknownEntry } from '../game/entries';
+import { COPIES_PER_RANK, DECK_SIZE, Rank, isRank, valueToRank } from '../game/cards';
+import { Entry, entryValue, rankEntry, unknownEntry } from '../game/entries';
 import { anyCaptureAvailable, isSameCapture, isSweep, legalCaptures, tableSum } from '../game/rules';
-import { HOUSE_CONFIG, ScoringConfig } from '../game/config';
-import { ScoringResult, scoreRound } from '../game/scoring';
 
 export type Player = 0 | 1 | 2;
 export const PLAYERS: Player[] = [0, 1, 2];
@@ -17,7 +15,7 @@ export interface TurnRecord {
 }
 
 export interface Game {
-  version: 2;
+  version: 3;
   id: string;
   phase: 'setup' | 'playing' | 'finished';
   deal: number;
@@ -26,25 +24,19 @@ export interface Game {
   table: Entry[];
   captured: Entry[][];
   sweeps: number[];
-  handBonus: number[];
-  handBonusDeclared: string[];
-  handBonusAwarded: boolean;
   turns: TurnRecord[];
   lastCapture: Player | null;
   unknownDiscards: number;
-  config: ScoringConfig;
-  priorScores: number[];
   midRound: boolean;
   opponentStartHand: number;
   startDeal: number;
   claimedInitial: boolean;
-  deadCards: CardKey[];
+  deadRanks: Rank[];
   createdAt: number;
   updatedAt: number;
 }
 
 export type PlayedInput =
-  | { kind: 'exact'; card: Card }
   | { kind: 'rank'; rank: Rank }
   | { kind: 'unknown' };
 
@@ -58,7 +50,7 @@ function gameId(): string {
 export function initialGame(overrides: Partial<Game> = {}): Game {
   const now = Date.now();
   return {
-    version: 2,
+    version: 3,
     id: gameId(),
     phase: 'setup',
     deal: 1,
@@ -67,19 +59,14 @@ export function initialGame(overrides: Partial<Game> = {}): Game {
     table: [],
     captured: [[], [], []],
     sweeps: [0, 0, 0],
-    handBonus: [0, 0, 0],
-    handBonusDeclared: [],
-    handBonusAwarded: false,
     turns: [],
     lastCapture: null,
     unknownDiscards: 0,
-    config: { ...HOUSE_CONFIG },
-    priorScores: [0, 0, 0],
     midRound: false,
     opponentStartHand: 3,
     startDeal: 1,
     claimedInitial: false,
-    deadCards: [],
+    deadRanks: [],
     createdAt: now,
     updatedAt: now,
     ...overrides
@@ -90,40 +77,54 @@ function touch(g: Game): Game {
   return { ...g, updatedAt: Date.now() };
 }
 
-function allEntries(g: Game): Entry[] {
+export function allEntries(g: Game): Entry[] {
   return [...g.hand, ...g.table, ...g.captured.flat()];
 }
 
-export function usedExactKeys(g: Game): Set<CardKey> {
-  const keys = new Set<CardKey>();
-  for (const e of allEntries(g)) {
-    if (e.kind === 'exact') keys.add(cardKey(e.card));
+/** Number of known copies of every rank that are in hands, on the table or captured. */
+export function rankEntryCounts(g: Game): Map<Rank, number> {
+  const counts = new Map<Rank, number>();
+  for (const entry of allEntries(g)) {
+    if (entry.kind === 'rank') counts.set(entry.rank, (counts.get(entry.rank) ?? 0) + 1);
   }
-  return keys;
+  return counts;
 }
 
-export function usedExactKeysWithDead(g: Game): Set<CardKey> {
-  const keys = usedExactKeys(g);
-  for (const k of g.deadCards) keys.add(k);
-  return keys;
+export function deadRankCounts(g: Game): Map<Rank, number> {
+  const counts = new Map<Rank, number>();
+  for (const rank of g.deadRanks) counts.set(rank, (counts.get(rank) ?? 0) + 1);
+  return counts;
 }
 
-function assertCardAvailable(g: Game, card: Card, exceptEntryId?: string): void {
-  const key = cardKey(card);
-  if (g.deadCards.includes(key)) throw new Error('That card was already seen earlier in the game.');
-  for (const e of allEntries(g)) {
-    if (e.kind === 'exact' && cardKey(e.card) === key && e.id !== exceptEntryId) {
-      throw new Error('That card is already accounted for.');
-    }
+export function usedRankCount(g: Game, rank: Rank): number {
+  return (rankEntryCounts(g).get(rank) ?? 0) + (deadRankCounts(g).get(rank) ?? 0);
+}
+
+export function remainingRankCount(g: Game, rank: Rank): number {
+  return Math.max(0, COPIES_PER_RANK - usedRankCount(g, rank));
+}
+
+function assertRankAvailable(g: Game, rank: Rank, exceptEntryId?: string): void {
+  if (!isRank(rank)) throw new Error('Invalid rank.');
+  let used = deadRankCounts(g).get(rank) ?? 0;
+  for (const entry of allEntries(g)) {
+    if (entry.id === exceptEntryId) continue;
+    if (entry.kind === 'rank' && entry.rank === rank) used += 1;
+  }
+  if (used >= COPIES_PER_RANK) {
+    throw new Error(`All four copies of rank ${rank} are already accounted for.`);
   }
 }
 
-function findEntry(g: Game, id: string): Entry | null {
-  return allEntries(g).find((e) => e.id === id) ?? null;
+export function accountedTotal(g: Game): number {
+  return allEntries(g).length + g.deadRanks.length;
 }
 
-/** Adds an exact card to the table (setup only) or to your hand. */
-export function addCard(g: Game, zone: 'hand' | 'table', card: Card): Game {
+function assertDeckSpace(g: Game): void {
+  if (accountedTotal(g) >= DECK_SIZE) throw new Error('All 40 cards are already accounted for.');
+}
+
+export function addRankCard(g: Game, zone: 'hand' | 'table', rank: Rank): Game {
   if (g.phase === 'finished') throw new Error('The game is finished.');
   if (zone === 'table' && g.phase !== 'setup') {
     throw new Error('Table cards can only be edited during setup.');
@@ -134,46 +135,38 @@ export function addCard(g: Game, zone: 'hand' | 'table', card: Card): Game {
       throw new Error('Enter the next hand after starting the next deal.');
     }
   }
-  assertCardAvailable(g, card);
-  const entry = exactEntry(card);
-  const next = zone === 'hand' ? { ...g, hand: [...g.hand, entry] } : { ...g, table: [...g.table, entry] };
-  return touch(g.phase === 'playing' && zone === 'hand' ? syncAutoHandEscova(next) : next);
+  assertDeckSpace(g);
+  assertRankAvailable(g, rank);
+  const entry = rankEntry(rank);
+  return touch(
+    zone === 'hand' ? { ...g, hand: [...g.hand, entry] } : { ...g, table: [...g.table, entry] }
+  );
 }
 
 export function addUnknownToTable(g: Game): Game {
   if (g.phase !== 'setup') throw new Error('Unknown table cards can only be added during setup.');
+  if (accountedTotal(g) >= DECK_SIZE) throw new Error('All 40 cards are already accounted for.');
   return touch({ ...g, table: [...g.table, unknownEntry()] });
-}
-
-export function addRankToTable(g: Game, rank: Rank): Game {
-  if (g.phase !== 'setup') throw new Error('Table cards can only be edited during setup.');
-  if (!isRank(rank)) throw new Error('Invalid rank.');
-  return touch({ ...g, table: [...g.table, rankEntry(rank)] });
 }
 
 export function removeEntry(g: Game, id: string): Game {
   if (g.phase === 'finished') throw new Error('The game is finished.');
   const strip = (list: Entry[]) => list.filter((e) => e.id !== id);
-  const wasInHand = g.hand.some((e) => e.id === id);
-  const rollbackBonus = wasInHand && g.handBonusAwarded && playsThisDeal(g, 0) === 0;
   return touch({
     ...g,
     hand: strip(g.hand),
     table: strip(g.table),
-    captured: g.captured.map((pile) => strip(pile)),
-    handBonus: rollbackBonus ? g.handBonus.map((n, i) => (i === 0 ? Math.max(0, n - 1) : n)) : g.handBonus,
-    handBonusDeclared: rollbackBonus ? [] : g.handBonusDeclared,
-    handBonusAwarded: rollbackBonus ? false : g.handBonusAwarded
+    captured: g.captured.map((pile) => strip(pile))
   });
 }
 
-/** Replaces an unknown or rank-only entry once its identity becomes known. */
-export function resolveEntry(g: Game, id: string, card: Card): Game {
-  const target = findEntry(g, id);
+/** Replaces an unknown entry (or corrects a known rank) once more information is available. */
+export function resolveEntry(g: Game, id: string, rank: Rank): Game {
+  const target = allEntries(g).find((e) => e.id === id);
   if (!target) throw new Error('Entry not found.');
-  if (target.kind === 'exact' && cardKey(target.card) === cardKey(card)) return g;
-  assertCardAvailable(g, card, id);
-  const replacement = exactEntry(card, id);
+  if (target.kind === 'rank' && target.rank === rank) return g;
+  assertRankAvailable(g, rank, id);
+  const replacement = rankEntry(rank, id);
   const mapList = (list: Entry[]) => list.map((e) => (e.id === id ? replacement : e));
   return touch({
     ...g,
@@ -198,16 +191,6 @@ export function setDeal(g: Game, deal: number): Game {
   return touch({ ...g, deal });
 }
 
-export function setPriorScore(g: Game, player: Player, points: number): Game {
-  if (!Number.isFinite(points) || points < 0) throw new Error('Score must be a positive number.');
-  return touch({ ...g, priorScores: g.priorScores.map((p, i) => (i === player ? Math.round(points) : p)) });
-}
-
-export function setConfig(g: Game, patch: Partial<ScoringConfig>): Game {
-  const next = { ...g, config: { ...g.config, ...patch } };
-  return touch(next.config.autoHandEscova ? syncAutoHandEscova(next) : next);
-}
-
 export function setMidRound(g: Game, midRound: boolean): Game {
   return touch({ ...g, midRound });
 }
@@ -217,73 +200,34 @@ export function setOpponentStartHand(g: Game, n: number): Game {
   return touch({ ...g, opponentStartHand: clamped });
 }
 
-export function toggleDeadCard(g: Game, key: CardKey): Game {
-  if (usedExactKeys(g).has(key)) throw new Error('That card is already in play.');
-  const deadCards = g.deadCards.includes(key)
-    ? g.deadCards.filter((k) => k !== key)
-    : [...g.deadCards, key];
-  return touch({ ...g, deadCards });
+export function markRankSeen(g: Game, rank: Rank): Game {
+  assertDeckSpace(g);
+  if (usedRankCount(g, rank) >= COPIES_PER_RANK) {
+    throw new Error(`All four copies of rank ${rank} are accounted for.`);
+  }
+  return touch({ ...g, deadRanks: [...g.deadRanks, rank] });
+}
+
+export function unmarkRankSeen(g: Game, rank: Rank): Game {
+  const index = g.deadRanks.lastIndexOf(rank);
+  if (index < 0) throw new Error('No seen copy of that rank to undo.');
+  const deadRanks = [...g.deadRanks];
+  deadRanks.splice(index, 1);
+  return touch({ ...g, deadRanks });
 }
 
 export function handTotal(hand: Entry[]): number | null {
   let total = 0;
-  for (const e of hand) {
-    if (e.kind === 'unknown') return null;
-    total += e.kind === 'exact' ? cardValue(e.card) : rankValue(e.rank);
+  for (const entry of hand) {
+    const value = entryValue(entry);
+    if (value === null) return null;
+    total += value;
   }
   return total;
 }
 
 export function isThreeCardEscova(hand: Entry[]): boolean {
   return hand.length === 3 && handTotal(hand) === 15;
-}
-
-export function handSignature(hand: Entry[]): string {
-  return hand
-    .map((e) => (e.kind === 'exact' ? cardKey(e.card) : e.kind === 'rank' ? `r${e.rank}` : 'u'))
-    .sort()
-    .join('|');
-}
-
-export interface HandEscovaInfo {
-  possible: boolean;
-  total: number | null;
-  declared: boolean;
-  signature: string;
-}
-
-export function handEscovaInfo(g: Game): HandEscovaInfo {
-  const signature = handSignature(g.hand);
-  return {
-    possible: isThreeCardEscova(g.hand),
-    total: handTotal(g.hand),
-    declared: g.handBonusAwarded || g.handBonusDeclared.includes(signature),
-    signature
-  };
-}
-
-export function declareHandEscova(g: Game): Game {
-  const info = handEscovaInfo(g);
-  if (!info.possible) throw new Error('Your three cards do not total 15.');
-  if (info.declared) throw new Error('This hand escova has already been recorded.');
-  return touch({
-    ...g,
-    handBonus: g.handBonus.map((n, i) => (i === 0 ? n + 1 : n)),
-    handBonusDeclared: [...g.handBonusDeclared, info.signature],
-    handBonusAwarded: true
-  });
-}
-
-function syncAutoHandEscova(g: Game): Game {
-  if (!g.config.autoHandEscova || g.handBonusAwarded) return g;
-  const info = handEscovaInfo(g);
-  if (!info.possible || info.declared) return g;
-  return {
-    ...g,
-    handBonus: g.handBonus.map((n, i) => (i === 0 ? n + 1 : n)),
-    handBonusDeclared: [...g.handBonusDeclared, info.signature],
-    handBonusAwarded: true
-  };
 }
 
 export function startGame(g: Game): Game {
@@ -295,16 +239,7 @@ export function startGame(g: Game): Game {
     if (!validTable) throw new Error('Enter exactly four table cards.');
     if (g.hand.length !== 3) throw new Error('Enter exactly three hand cards.');
   }
-  const next: Game = {
-    ...g,
-    phase: 'playing',
-    deal: g.deal,
-    startDeal: g.deal,
-    handBonusDeclared: [],
-    handBonusAwarded: false,
-    updatedAt: Date.now()
-  };
-  return touch(syncAutoHandEscova(next));
+  return touch({ ...g, phase: 'playing', startDeal: g.deal, updatedAt: Date.now() });
 }
 
 /** Official rule: four opening table cards totalling 15 go to the dealer as an escoba. */
@@ -337,15 +272,15 @@ export function playCard(g: Game, entryId: string, captureIds: string[]): Game {
 
   const capture = uniqueEntries(g.table, captureIds);
   const options = legalCaptures(g.table, playedValue);
-  if (capture.length > 0) {
-    const matches = options.some((o) => isSameCapture(o, capture));
-    if (!matches) throw new Error('That selection does not total 15.');
+  if (capture.length > 0 && !options.some((o) => isSameCapture(o, capture))) {
+    throw new Error('That selection does not total 15.');
   }
 
   const sweep = isSweep(g.table, capture);
   const remaining = g.table.filter((e) => !capture.some((c) => c.id === e.id));
   const discarded = capture.length === 0;
-  const next: Game = {
+
+  return touch({
     ...g,
     hand: g.hand.filter((e) => e.id !== entryId),
     table: discarded ? [...remaining, entry] : remaining,
@@ -355,10 +290,8 @@ export function playCard(g: Game, entryId: string, captureIds: string[]): Game {
     sweeps: g.sweeps.map((n, i) => (i === 0 && sweep ? n + 1 : n)),
     turn: 1,
     turns: [...g.turns, { player: 0, played: entry, captured: capture, sweep, deal: g.deal, inferredValue: null }],
-    lastCapture: capture.length > 0 ? 0 : g.lastCapture,
-    updatedAt: Date.now()
-  };
-  return next;
+    lastCapture: capture.length > 0 ? 0 : g.lastCapture
+  });
 }
 
 function uniqueEntries(table: Entry[], ids: string[]): Entry[] {
@@ -374,33 +307,31 @@ function uniqueEntries(table: Entry[], ids: string[]): Entry[] {
 export function recordOpponentPlay(g: Game, input: PlayedInput, captureIds: string[]): Game {
   if (g.phase !== 'playing') throw new Error('The game is not in play.');
   if (g.turn === 0) throw new Error('It is your turn.');
+  assertDeckSpace(g);
   const player = g.turn;
   const capture = uniqueEntries(g.table, captureIds);
 
   let played: Entry;
   let inferredValue: number | null = null;
 
-  if (input.kind === 'exact') {
-    assertCardAvailable(g, input.card);
-    played = exactEntry(input.card);
-  } else if (input.kind === 'rank') {
-    if (!isRank(input.rank)) throw new Error('Invalid rank.');
-    const used = usedExactKeys(g);
-    const anySuit = (['oros', 'copas', 'espadas', 'bastos'] as const).some(
-      (suit) => !used.has(cardKey({ suit, rank: input.rank }))
-    );
-    if (!anySuit) throw new Error('Every card of that rank is already accounted for.');
+  if (input.kind === 'rank') {
+    assertRankAvailable(g, input.rank);
     played = rankEntry(input.rank);
   } else {
     played = unknownEntry();
   }
 
-  if (played.kind !== 'unknown') {
+  if (played.kind === 'rank') {
     const playedValue = entryValue(played);
     if (playedValue !== null && capture.length > 0) {
       const total = capture.reduce((sum, e) => sum + (entryValue(e) ?? NaN), 0);
       if (Number.isNaN(total)) throw new Error('Captured table cards must be known to record this.');
       if (total + playedValue !== 15) throw new Error('The played card and captured cards do not total 15.');
+    }
+    if (capture.length === 0) {
+      if (playedValue !== null && legalCaptures(g.table, playedValue).length > 0) {
+        throw new Error('That card can capture; select the captured table cards.');
+      }
     }
   } else if (capture.length > 0) {
     const total = capture.reduce((sum, e) => sum + (entryValue(e) ?? NaN), 0);
@@ -408,27 +339,17 @@ export function recordOpponentPlay(g: Game, input: PlayedInput, captureIds: stri
     const inferred = 15 - total;
     const rank = valueToRank(inferred);
     if (rank === null) throw new Error('Captured cards cannot make 15 with a valid card.');
-    const used = usedExactKeys(g);
-    const anySuit = (['oros', 'copas', 'espadas', 'bastos'] as const).some(
-      (suit) => !used.has(cardKey({ suit, rank }))
-    );
-    if (!anySuit) throw new Error('No unseen card matches the inferred value.');
+    if (remainingRankCount(g, rank) <= 0) throw new Error('No unseen copy matches the inferred value.');
     played = rankEntry(rank);
     inferredValue = inferred;
-  }
-
-  if (played.kind !== 'unknown' && capture.length === 0) {
-    const playedValue = entryValue(played);
-    if (playedValue !== null && legalCaptures(g.table, playedValue).length > 0) {
-      throw new Error('That card can capture; select the captured table cards.');
-    }
   }
 
   const sweep = isSweep(g.table, capture);
   const table = g.table.filter((e) => !capture.some((c) => c.id === e.id));
   const playedToTable = capture.length === 0;
   const unknownDiscard = played.kind === 'unknown' && capture.length === 0;
-  const next: Game = {
+
+  return touch({
     ...g,
     table: playedToTable ? [...table, played] : table,
     captured: g.captured.map((pile, i) =>
@@ -438,10 +359,8 @@ export function recordOpponentPlay(g: Game, input: PlayedInput, captureIds: stri
     turn: ((player + 1) % 3) as Player,
     turns: [...g.turns, { player, played, captured: capture, sweep, deal: g.deal, inferredValue }],
     lastCapture: capture.length > 0 ? player : g.lastCapture,
-    unknownDiscards: g.unknownDiscards + (unknownDiscard ? 1 : 0),
-    updatedAt: Date.now()
-  };
-  return next;
+    unknownDiscards: g.unknownDiscards + (unknownDiscard ? 1 : 0)
+  });
 }
 
 export function playsThisDeal(g: Game, player: Player): number {
@@ -458,9 +377,9 @@ export function canAdvanceDeal(g: Game): { ok: boolean; reason: string } {
   if (g.hand.length > 0) return { ok: false, reason: 'Play all your hand cards first.' };
   if (g.deal >= 4) return { ok: false, reason: 'That was the last deal.' };
   const expected = expectedPlaysThisDeal(g);
-  for (const p of PLAYERS) {
-    if (playsThisDeal(g, p) < expected) {
-      return { ok: false, reason: `Player ${p + 1} still has cards to record this deal.` };
+  for (const player of PLAYERS) {
+    if (playsThisDeal(g, player) < expected) {
+      return { ok: false, reason: `Player ${player + 1} still has cards to record this deal.` };
     }
   }
   return { ok: true, reason: '' };
@@ -474,8 +393,7 @@ export function nextDeal(g: Game): Game {
     deal: g.deal + 1,
     hand: [],
     opponentStartHand: 3,
-    midRound: false,
-    handBonusAwarded: false
+    midRound: false
   });
 }
 
@@ -484,8 +402,8 @@ export function canFinish(g: Game): { ok: boolean; reason: string } {
   if (g.deal !== 4) return { ok: false, reason: 'Finish the fourth deal first.' };
   if (g.hand.length > 0) return { ok: false, reason: 'Play all your hand cards first.' };
   const expected = expectedPlaysThisDeal(g);
-  for (const p of PLAYERS) {
-    if (playsThisDeal(g, p) < expected) {
+  for (const player of PLAYERS) {
+    if (playsThisDeal(g, player) < expected) {
       return { ok: false, reason: 'Record every remaining turn first.' };
     }
   }
@@ -506,15 +424,3 @@ export function finishGame(g: Game): Game {
         : g.captured.map((pile, i) => (i === recipient ? [...pile, ...g.table] : pile))
   });
 }
-
-export function computeScores(g: Game): ScoringResult {
-  return scoreRound({
-    captured: g.captured,
-    sweeps: g.sweeps,
-    handBonus: g.handBonus,
-    priorScores: g.priorScores,
-    config: g.config
-  });
-}
-
-

@@ -1,5 +1,6 @@
-import { Entry, entryShort } from '../game/entries';
-import { SUIT_SYMBOL, cardValue } from '../game/cards';
+import { entryShort } from '../game/entries';
+import { Rank, rankValue } from '../game/cards';
+import { Entry } from '../game/entries';
 
 interface Props {
   entry: Entry;
@@ -12,26 +13,21 @@ interface Props {
 }
 
 export function CardTile({ entry, selected, disabled, small, muted, onClick, ariaLabel }: Props) {
-  const suit = entry.kind === 'exact' ? entry.card.suit : null;
-  const value = entry.kind === 'exact' ? cardValue(entry.card) : null;
+  const unknown = entry.kind === 'unknown';
+  const rank: Rank | null = entry.kind === 'rank' ? entry.rank : null;
+  const value = rank !== null ? rankValue(rank) : null;
   const classes = [
     'tile',
-    suit ? `suit-${suit}` : 'suit-unknown',
+    unknown ? 'unknown-card' : 'rank-card',
     selected ? 'selected' : '',
     small ? 'small' : '',
-    muted ? 'muted' : '',
-    entry.kind === 'unknown' ? 'unknown' : ''
+    muted ? 'muted' : ''
   ]
     .filter(Boolean)
     .join(' ');
 
   const label =
-    ariaLabel ??
-    (entry.kind === 'exact'
-      ? `${entry.card.rank} de ${suit}`
-      : entry.kind === 'rank'
-        ? `rank ${entry.rank}, suit unknown`
-        : 'unknown card');
+    ariaLabel ?? (unknown ? 'unknown card' : `${rank}${value !== rank ? ` (value ${value})` : ''}`);
 
   return (
     <button
@@ -43,11 +39,9 @@ export function CardTile({ entry, selected, disabled, small, muted, onClick, ari
       aria-pressed={selected}
       title={label}
     >
-      <span className="tile-rank">{entryShort(entry)}</span>
-      <span className="tile-suit">{suit ? SUIT_SYMBOL[suit] : '?'}</span>
-      {value !== null && entry.kind === 'exact' && value !== entry.card.rank ? (
-        <span className="tile-value">={value}</span>
-      ) : null}
+      <span className="tile-rank">{unknown ? '0' : entryShort(entry)}</span>
+      {!unknown && value !== null && value !== rank ? <span className="tile-value">={value}</span> : null}
+      <span className="tile-mark">{unknown ? '?' : '•'}</span>
     </button>
   );
 }

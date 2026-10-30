@@ -1,17 +1,15 @@
 import { useEffect, useState } from 'react';
-import { CardKey, SUIT_SYMBOL, cardValue, rankValue, valueToRank } from '../game/cards';
-import { Entry, entryShort } from '../game/entries';
+import { rankValue, valueToRank } from '../game/cards';
+import { Entry, entryShort, entryValue, rankEntry, unknownEntry } from '../game/entries';
 import { captureTotal, legalCaptures } from '../game/rules';
 import {
   Game,
   PlayedInput,
-  addCard,
+  addRankCard,
   canAdvanceDeal,
   canFinish,
-  declareHandEscova,
   expectedPlaysThisDeal,
   finishGame,
-  handEscovaInfo,
   handTotal,
   nextDeal,
   playCard,
@@ -20,23 +18,20 @@ import {
   removeEntry,
   resolveEntry
 } from '../tracking/state';
-import { informationPercent, unseenCount } from '../tracking/selectors';
+import { informationPercent, remainingRankCopies, unseenCount } from '../tracking/selectors';
 import { MoveOption, Recommendation, moveSummary } from '../strategy/engine';
 import { CardTile } from './CardTile';
-import { DeckPicker } from './DeckPicker';
+import { RankPicker } from './RankPicker';
 
 interface Props {
   game: Game;
   rec: Recommendation | null;
-  used: Set<CardKey>;
   dispatch: (update: (current: Game) => Game) => boolean;
 }
 
 function captureText(move: MoveOption): string {
   if (!move.capture.length) return 'no capture';
-  return move.capture
-    .map((e) => (e.kind === 'exact' ? `${e.card.rank}${SUIT_SYMBOL[e.card.suit]}` : entryShort(e)))
-    .join(' + ');
+  return move.capture.map((e) => entryShort(e)).join(' + ');
 }
 
 function threatClass(probability: number): string {
@@ -45,7 +40,7 @@ function threatClass(probability: number): string {
   return 'low';
 }
 
-export function PlayScreen({ game, rec, used, dispatch }: Props) {
+export function PlayScreen({ game, rec, dispatch }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [captureIds, setCaptureIds] = useState<string[]>([]);
   const [opponentPicker, setOpponentPicker] = useState(false);
@@ -64,20 +59,23 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
   }, [game.updatedAt]);
 
   const myTurn = game.turn === 0;
-  const enteringHand = game.hand.length === 0 && playsThisDeal(game, 0) === 0 && game.phase === 'playing';
+  const enteringHand = game.phase === 'playing' && game.hand.length === 0 && playsThisDeal(game, 0) === 0;
   const advancing = canAdvanceDeal(game);
   const finishing = canFinish(game);
   const info = informationPercent(game);
   const unseen = unseenCount(game);
   const unknownOnTable = game.table.filter((e) => e.kind === 'unknown').length;
-  const handBonus = handEscovaInfo(game);
+  const total = handTotal(game.hand);
+  const handEscova = game.hand.length === 3 && total === 15;
+  const remaining = remainingRankCopies(game);
 
   const selectedEntry = game.hand.find((e) => e.id === selectedId) ?? null;
   const myMoves = rec && selectedEntry ? rec.moves.filter((m) => m.entry.id === selectedEntry.id) : [];
   const captureOptions = myMoves.filter((m) => m.isCapture);
   const canDiscard = myMoves.some((m) => !m.isCapture);
   const canPlaySelected = captureOptions.length > 0 || canDiscard;
-  const playedValue = selectedEntry ? (selectedEntry.kind === 'exact' ? cardValue(selectedEntry.card) : selectedEntry.kind === 'rank' ? rankValue(selectedEntry.rank) : null) : null;
+  const playedValue = selectedEntry ? entryValue(selectedEntry) : null;
+
   const selectedCaptureEntries = captureIds
     .map((id) => game.table.find((e) => e.id === id))
     .filter((e): e is Entry => Boolean(e));
@@ -107,38 +105,27 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
 
   const startOpponentPlay = (input: PlayedInput) => {
     setPending(input);
-    if (input.kind === 'exact' || input.kind === 'rank') {
-      const value = input.kind === 'exact' ? cardValue(input.card) : rankValue(input.rank);
-      if (value !== null) {
-        const options = legalCaptures(game.table, value);
-        setOpponentCaptureIds(options[0]?.map((e) => e.id) ?? []);
-      }
+    if (input.kind === 'rank') {
+      const options = legalCaptures(game.table, rankValue(input.rank));
+      setOpponentCaptureIds(options[0]?.map((e) => e.id) ?? []);
     } else {
       setOpponentCaptureIds([]);
     }
     setOpponentPicker(false);
   };
 
+  const pendingKnownValue = pending?.kind === 'rank' ? rankValue(pending.rank) : null;
   const opponentOptions =
-    pending && (pending.kind === 'exact' || pending.kind === 'rank')
-      ? legalCaptures(
-          game.table,
-          pending.kind === 'exact' ? cardValue(pending.card) : rankValue(pending.rank)
-        )
-      : [];
+    pendingKnownValue !== null ? legalCaptures(game.table, pendingKnownValue) : [];
 
-  const pendingKnownValue =
-    pending?.kind === 'exact'
-      ? cardValue(pending.card)
-      : pending?.kind === 'rank'
-        ? rankValue(pending.rank)
-        : null;
-
-  const unknownCapture = opponentCaptureIds
+  const selectedOpponentCapture = opponentCaptureIds
     .map((id) => game.table.find((e) => e.id === id))
     .filter((e): e is Entry => Boolean(e));
-  const unknownTotal = captureTotal(unknownCapture);
-  const inferredRank = pending?.kind === 'unknown' && unknownCapture.length ? valueToRank(15 - unknownTotal) : null;
+  const opponentCaptureSum = captureTotal(selectedOpponentCapture);
+  const inferredRank =
+    pending?.kind === 'unknown' && selectedOpponentCapture.length
+      ? valueToRank(15 - opponentCaptureSum)
+      : null;
 
   const unknownHand = game.hand.find((e) => e.kind === 'unknown') ?? null;
 
@@ -189,30 +176,16 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
         </section>
       ) : null}
 
-      {handBonus.possible && !handBonus.declared ? (
+      {handEscova ? (
         <section className="panel bonus">
           <div className="bonus-head">
-            <span className="badge gold">+{game.config.handEscova} PTS</span>
-            <h2>Three-card escova in your hand</h2>
+            <span className="badge gold">HAND 15</span>
+            <h2>Your three cards total 15</h2>
           </div>
           <p>
-            Your hand totals 15. Under your house rule this is a separate scoring event worth{' '}
-            {game.config.handEscova} point{game.config.handEscova === 1 ? '' : 's'} — declare it before you
-            start playing this hand.
+            This is a hand escova under the 3-card house rule. Declare it before playing if your table
+            requires it. Scores are not tracked in this app.
           </p>
-          <button type="button" className="primary" onClick={() => dispatch(declareHandEscova)}>
-            Declare hand escova
-          </button>
-          <p className="hint">
-            This is not the same as a table-clearing escova. It can only be recorded once per hand.
-          </p>
-        </section>
-      ) : null}
-
-      {handBonus.possible && handBonus.declared ? (
-        <section className="panel bonus recorded">
-          <span className="badge gold">RECORDED</span>
-          <p>Hand escova recorded for this hand ({game.config.handEscova} pts).</p>
         </section>
       ) : null}
 
@@ -239,7 +212,8 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
             <CardTile entry={rec.best.entry} />
             <div>
               <h3>
-                {rec.best.isCapture ? 'Capture' : 'Discard'} {rec.best.card ? `${rec.best.card.rank} ${rec.best.card.suit}` : ''}
+                {rec.best.isCapture ? 'Capture with ' : 'Discard '}
+                {entryShort(rec.best.entry)}
               </h3>
               <p className="capture-line">{captureText(rec.best)}</p>
               {rec.best.sweep ? <span className="badge gold">ESCOVA</span> : null}
@@ -290,7 +264,7 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
                       onClick={() => dispatch((g) => playCard(g, move.entry.id, move.captureIds))}
                     >
                       <span>{moveSummary(move)}</span>
-                      <small>score {move.score.toFixed(1)}</small>
+                      <small>rating {move.score.toFixed(1)}</small>
                     </button>
                   ))
                 : null}
@@ -319,18 +293,20 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
               );
             })
           ) : (
-            <p className="empty">Table is clear — play any card to keep the escova.</p>
+            <p className="empty">Table is clear — there is nothing to capture.</p>
           )}
         </div>
-        {unknownTotal > 0 || (pending?.kind === 'unknown' && opponentCaptureIds.length) ? (
-          <p className="hint">Selected captured value: {unknownTotal} (needs 15 total)</p>
+        {opponentCaptureIds.length > 0 ? (
+          <p className="hint">Selected captured value: {opponentCaptureSum} (needs 15 total)</p>
         ) : null}
       </section>
 
       <section className="panel">
         <div className="panel-title">
           <h2>Your hand</h2>
-          <span>{game.hand.length} cards{handTotal(game.hand) !== null ? ` · total ${handTotal(game.hand)}` : ''}</span>
+          <span>
+            {game.hand.length} cards{total !== null ? ` · total ${total}` : ''}
+          </span>
         </div>
         <div className="card-row hand-row">
           {game.hand.length ? (
@@ -411,8 +387,8 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
           {!pending ? (
             <>
               <p className="hint">
-                Choose the card you saw. If you did not see it, record 0 — a known capture will infer its
-                value without inventing a suit.
+                Choose the rank you saw. If you did not see it, record 0 — a known capture will infer its
+                value.
               </p>
               <button type="button" className="primary wide" onClick={() => setOpponentPicker(true)}>
                 Enter opponent card
@@ -424,11 +400,9 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
                 <span>Played:</span>
                 <CardTile
                   entry={
-                    pending.kind === 'exact'
-                      ? { id: 'p', kind: 'exact', card: pending.card }
-                      : pending.kind === 'rank'
-                        ? { id: 'p', kind: 'rank', rank: pending.rank }
-                        : { id: 'p', kind: 'unknown' }
+                    pending.kind === 'rank'
+                      ? rankEntry(pending.rank, 'pending')
+                      : unknownEntry('pending')
                   }
                   small
                 />
@@ -445,9 +419,7 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
                       className={`chip ${opponentCaptureIds.join('-') === option.map((e) => e.id).join('-') ? 'active' : ''}`}
                       onClick={() => setOpponentCaptureIds(option.map((e) => e.id))}
                     >
-                      {option
-                        .map((e) => (e.kind === 'exact' ? `${e.card.rank}${SUIT_SYMBOL[e.card.suit]}` : entryShort(e)))
-                        .join(' + ')}
+                      {option.map((e) => entryShort(e)).join(' + ')}
                     </button>
                   ))}
                 </div>
@@ -460,15 +432,16 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
               )}
               {pendingKnownValue !== null ? (
                 <p className="hint">
-                  Total: {pendingKnownValue + unknownTotal} / 15
-                  {pendingKnownValue + unknownTotal !== 15 && opponentCaptureIds.length > 0
+                  Total: {pendingKnownValue + opponentCaptureSum} / 15
+                  {pendingKnownValue + opponentCaptureSum !== 15 && opponentCaptureIds.length > 0
                     ? ' — this selection is not legal'
                     : ''}
                 </p>
               ) : null}
               {pending.kind === 'unknown' && opponentCaptureIds.length > 0 ? (
                 <p className="hint">
-                  Inferred played card: {inferredRank ? `rank ${inferredRank} (suit unknown)` : 'not a valid card'}
+                  Inferred played card:{' '}
+                  {inferredRank ? `rank ${inferredRank}` : 'not a valid card'}
                 </p>
               ) : null}
               <div className="button-row">
@@ -481,14 +454,23 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
                       opponentCaptureIds.length === 0) ||
                     (pendingKnownValue !== null &&
                       opponentCaptureIds.length > 0 &&
-                      pendingKnownValue + unknownTotal !== 15) ||
-                    (pending.kind === 'unknown' && opponentCaptureIds.length > 0 && inferredRank === null)
+                      pendingKnownValue + opponentCaptureSum !== 15) ||
+                    (pending.kind === 'unknown' &&
+                      opponentCaptureIds.length > 0 &&
+                      inferredRank === null)
                   }
                   onClick={() => dispatch((g) => recordOpponentPlay(g, pending, opponentCaptureIds))}
                 >
                   Confirm play
                 </button>
-                <button type="button" className="ghost" onClick={() => { setPending(null); setOpponentCaptureIds([]); }}>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    setPending(null);
+                    setOpponentCaptureIds([]);
+                  }}
+                >
                   Cancel
                 </button>
               </div>
@@ -501,8 +483,8 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
         <section className="panel notice">
           <h2>Unknown cards on the table: {unknownOnTable}</h2>
           <p>
-            Recommendations still work around known cards. Resolve the unknown cards in the Tracker when
-            they become visible so probabilities tighten.
+            Recommendations still work around known cards. Resolve the unknown cards in the Cards tab when
+            they become visible.
           </p>
         </section>
       ) : null}
@@ -522,7 +504,7 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
           <h2>Finish the round</h2>
           <p>The remaining table cards go to the last player who captured.</p>
           <button type="button" className="primary wide" onClick={() => dispatch(finishGame)}>
-            Finish and score
+            Finish round
           </button>
         </section>
       ) : null}
@@ -535,10 +517,9 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
       ) : null}
 
       {opponentPicker ? (
-        <DeckPicker
+        <RankPicker
           title={`Player ${game.turn + 1}: card played`}
-          used={used}
-          onPickCard={(card) => startOpponentPlay({ kind: 'exact', card })}
+          remaining={remaining}
           onPickRank={(rank) => startOpponentPlay({ kind: 'rank', rank })}
           onPickUnknown={() => startOpponentPlay({ kind: 'unknown' })}
           onClose={() => setOpponentPicker(false)}
@@ -546,22 +527,22 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
       ) : null}
 
       {handPicker ? (
-        <DeckPicker
+        <RankPicker
           title={`Deal ${game.deal}: add a hand card`}
-          used={used}
-          onPickCard={(card) => {
-            if (dispatch((g) => addCard(g, 'hand', card))) setHandPicker(false);
+          remaining={remaining}
+          onPickRank={(rank) => {
+            if (dispatch((g) => addRankCard(g, 'hand', rank))) setHandPicker(false);
           }}
           onClose={() => setHandPicker(false)}
         />
       ) : null}
 
       {resolveId ? (
-        <DeckPicker
+        <RankPicker
           title="Specify the unknown card"
-          used={used}
-          onPickCard={(card) => {
-            if (dispatch((g) => resolveEntry(g, resolveId, card))) setResolveId(null);
+          remaining={remaining}
+          onPickRank={(rank) => {
+            if (dispatch((g) => resolveEntry(g, resolveId, rank))) setResolveId(null);
           }}
           onClose={() => setResolveId(null)}
         />

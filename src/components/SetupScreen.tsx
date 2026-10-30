@@ -1,51 +1,39 @@
 import { useState } from 'react';
-import { CardKey } from '../game/cards';
 import { Entry } from '../game/entries';
 import { tableSum } from '../game/rules';
-import { PRESETS, PresetName } from '../game/config';
 import {
   Game,
   Player,
-  addCard,
+  addRankCard,
   addUnknownToTable,
   claimInitialEscova,
   removeEntry,
-  setConfig,
   setDeal,
   setMidRound,
   setOpponentStartHand,
-  setPriorScore,
   setTurn,
   startGame
 } from '../tracking/state';
+import { remainingRankCopies } from '../tracking/selectors';
 import { CardTile } from './CardTile';
-import { DeckPicker } from './DeckPicker';
+import { RankPicker } from './RankPicker';
 
 interface Props {
   game: Game;
-  used: Set<CardKey>;
   dispatch: (update: (current: Game) => Game) => boolean;
 }
 
-export function SetupScreen({ game, used, dispatch }: Props) {
+export function SetupScreen({ game, dispatch }: Props) {
   const [picker, setPicker] = useState<'hand' | 'table' | null>(null);
   const [dealer, setDealer] = useState<Player>(0);
-  const [showScores, setShowScores] = useState(false);
 
+  const remaining = remainingRankCopies(game);
   const sum = tableSum(game.table);
   const freshReady =
     !game.midRound &&
     game.hand.length === 3 &&
     (game.table.length === 4 || (game.claimedInitial && game.table.length === 0));
-  const midReady = game.midRound && game.hand.length <= 3;
-  const ready = game.midRound ? midReady : freshReady;
-
-  const choosePreset = (name: PresetName) => {
-    dispatch((g) => setConfig(g, PRESETS[name].config));
-  };
-
-  const isPreset = (name: PresetName) =>
-    JSON.stringify(game.config) === JSON.stringify(PRESETS[name].config);
+  const ready = game.midRound ? game.hand.length <= 3 : freshReady;
 
   const zoneCards = (entries: Entry[]) =>
     entries.map((entry) => (
@@ -104,7 +92,7 @@ export function SetupScreen({ game, used, dispatch }: Props) {
         {!game.midRound && sum === 15 && game.table.length === 4 ? (
           <div className="notice gold">
             <strong>These four cards total 15.</strong>
-            <p>The dealer takes them as a 1-point escova and play starts with an empty table.</p>
+            <p>The dealer takes them as an escova and play starts with an empty table.</p>
             <div className="button-row">
               <select
                 value={dealer}
@@ -188,56 +176,7 @@ export function SetupScreen({ game, used, dispatch }: Props) {
         ) : null}
       </section>
 
-      <section className="panel">
-        <button type="button" className="collapse-head" onClick={() => setShowScores((v) => !v)}>
-          <h2>Starting scores</h2>
-          <span>{showScores ? '−' : '+'}</span>
-        </button>
-        {showScores ? (
-          <div className="score-inputs">
-            {[0, 1, 2].map((p) => (
-              <label key={p}>
-                {p === 0 ? 'You' : `Player ${p + 1}`}
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  value={game.priorScores[p]}
-                  onChange={(e) => dispatch((g) => setPriorScore(g, p as Player, Number(e.target.value)))}
-                />
-              </label>
-            ))}
-          </div>
-        ) : null}
-      </section>
-
-      <section className="panel">
-        <h2>Scoring preset</h2>
-        <div className="preset-row">
-          {(Object.keys(PRESETS) as PresetName[]).map((name) => (
-            <button
-              key={name}
-              type="button"
-              className={`preset ${isPreset(name) ? 'active' : ''}`}
-              onClick={() => choosePreset(name)}
-            >
-              {PRESETS[name].label}
-            </button>
-          ))}
-        </div>
-        <p className="hint">
-          3-card hand escova is worth {game.config.handEscova} point
-          {game.config.handEscova === 1 ? '' : 's'} in this preset. All scoring values can be edited in the
-          Scores tab.
-        </p>
-      </section>
-
-      <button
-        type="button"
-        className="primary wide"
-        disabled={!ready}
-        onClick={() => dispatch(startGame)}
-      >
+      <button type="button" className="primary wide" disabled={!ready} onClick={() => dispatch(startGame)}>
         {game.midRound ? 'Analyse current position' : 'Start round'}
       </button>
       {!ready ? (
@@ -251,11 +190,11 @@ export function SetupScreen({ game, used, dispatch }: Props) {
       ) : null}
 
       {picker ? (
-        <DeckPicker
+        <RankPicker
           title={picker === 'hand' ? 'Add a card to your hand' : 'Add a table card'}
-          used={used}
-          onPickCard={(card) => {
-            if (dispatch((g) => addCard(g, picker, card))) setPicker(null);
+          remaining={remaining}
+          onPickRank={(rank) => {
+            if (dispatch((g) => addRankCard(g, picker, rank))) setPicker(null);
           }}
           onClose={() => setPicker(null)}
         />
@@ -263,4 +202,3 @@ export function SetupScreen({ game, used, dispatch }: Props) {
     </div>
   );
 }
-

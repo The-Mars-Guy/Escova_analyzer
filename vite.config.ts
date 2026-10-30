@@ -12,7 +12,7 @@ export default defineConfig({
       manifest: {
         name: 'Escova 15 — Strategy Assistant',
         short_name: 'Escova 15',
-        description: 'A pocket strategy assistant for the physical game Escova de 15.',
+        description: 'A rank-only pocket strategy assistant for the physical game Escova de 15.',
         theme_color: '#0b1418',
         background_color: '#0b1418',
         display: 'standalone',

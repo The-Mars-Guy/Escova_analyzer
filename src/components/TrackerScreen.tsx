@@ -1,46 +1,37 @@
 import { useState } from 'react';
+import { RANKS, rankLabel } from '../game/cards';
+import { entryLabel, entryShort, rankEntry } from '../game/entries';
 import {
-  ALL_CARDS,
-  CardKey,
-  SUITS,
-  SUIT_LABEL,
-  SUIT_SYMBOL,
-  cardKey,
-  cardFromKey
-} from '../game/cards';
-import { Entry, entryLabel, entryShort, exactEntry } from '../game/entries';
-import { Game, toggleDeadCard, resolveEntry, removeEntry } from '../tracking/state';
-import { accountedCardCount, informationPercent, openEntries, unseenCount } from '../tracking/selectors';
+  Game,
+  deadRankCounts,
+  markRankSeen,
+  rankEntryCounts,
+  removeEntry,
+  resolveEntry,
+  unmarkRankSeen
+} from '../tracking/state';
+import {
+  accountedCardCount,
+  informationPercent,
+  openEntries,
+  remainingRankCopies,
+  unseenCount
+} from '../tracking/selectors';
 import { CardTile } from './CardTile';
-import { DeckPicker } from './DeckPicker';
+import { RankPicker } from './RankPicker';
 
 interface Props {
   game: Game;
-  used: Set<CardKey>;
   dispatch: (update: (current: Game) => Game) => boolean;
 }
 
-function statusFor(game: Game, key: CardKey): { label: string; className: string } {
-  const keyOf = (e: Entry) => (e.kind === 'exact' ? cardKey(e.card) : null);
-  if (game.hand.some((e) => keyOf(e) === key)) return { label: 'hand', className: 'in-hand' };
-  if (game.table.some((e) => keyOf(e) === key)) return { label: 'table', className: 'on-table' };
-  for (let p = 0; p < game.captured.length; p += 1) {
-    if (game.captured[p].some((e) => keyOf(e) === key)) {
-      return { label: p === 0 ? 'yours' : `P${p + 1}`, className: 'captured' };
-    }
-  }
-  if (game.deadCards.includes(key)) return { label: 'seen', className: 'dead' };
-  return { label: '?', className: 'unseen' };
-}
-
-export function TrackerScreen({ game, used, dispatch }: Props) {
+export function TrackerScreen({ game, dispatch }: Props) {
   const [resolveId, setResolveId] = useState<string | null>(null);
+  const entries = rankEntryCounts(game);
+  const dead = deadRankCounts(game);
+  const remaining = remainingRankCopies(game);
   const open = openEntries(game);
-  const openById = new Map<string, Entry>();
-  for (const entry of open) openById.set(entry.id, entry);
-  const uniqueOpen = [...openById.values()];
-
-  const resolveTarget = uniqueOpen.find((e) => e.id === resolveId) ?? null;
+  const resolveTarget = open.find((e) => e.id === resolveId) ?? null;
 
   return (
     <div className="tracker">
@@ -53,46 +44,67 @@ export function TrackerScreen({ game, used, dispatch }: Props) {
 
       <section className="panel">
         <div className="panel-title">
-          <h2>Card tracker</h2>
+          <h2>Rank tracker</h2>
           <span>{informationPercent(game)}% resolved</span>
         </div>
         <p className="hint">
-          Dimmed cards are accounted for. Tap a card you saw earlier in the game to mark it dead; tap again
-          to undo. Dead cards are excluded from probability calculations and cannot be entered again.
+          Four copies of every rank. Mark a copy as seen earlier if it is already out of play; seen copies
+          are excluded from probability calculations.
         </p>
-        {SUITS.map((suit) => (
-          <div className="suit-block" key={suit}>
-            <h3 className={`suit-heading suit-${suit}`}>
-              {SUIT_SYMBOL[suit]} {SUIT_LABEL[suit]}
-            </h3>
-            <div className="tracker-grid">
-              {ALL_CARDS.filter((c) => c.suit === suit).map((card) => {
-                const key = cardKey(card);
-                const status = statusFor(game, key);
-                const clickable = status.className === 'unseen' || status.className === 'dead';
-                return (
-                  <div className="tracker-cell" key={key}>
-                    <CardTile
-                      entry={exactEntry(cardFromKey(key), `t-${key}`)}
-                      small
-                      disabled={!clickable}
-                      muted={!clickable}
-                      onClick={clickable ? () => dispatch((g) => toggleDeadCard(g, key)) : undefined}
-                    />
-                    <span className={`status ${status.className}`}>{status.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+
+        <div className="rank-tracker">
+          {RANKS.map((rank) => {
+            const inHand = game.hand.filter((e) => e.kind === 'rank' && e.rank === rank).length;
+            const onTable = game.table.filter((e) => e.kind === 'rank' && e.rank === rank).length;
+            const captured = game.captured.reduce(
+              (sum, pile) => sum + pile.filter((e) => e.kind === 'rank' && e.rank === rank).length,
+              0
+            );
+            const seen = dead.get(rank) ?? 0;
+            const left = remaining.get(rank) ?? 0;
+            const totalKnown = entries.get(rank) ?? 0;
+            return (
+              <div className="rank-track-row" key={rank}>
+                <CardTile entry={rankEntry(rank, `t-${rank}`)} small />
+                <div className="rank-track-info">
+                  <strong>Rank {rankLabel(rank)}</strong>
+                  <span>
+                    {inHand} hand · {onTable} table · {captured} taken · {seen} seen
+                  </span>
+                  <small>{left} unseen cop{left === 1 ? 'y' : 'ies'}</small>
+                </div>
+                <div className="rank-track-actions">
+                  <button
+                    type="button"
+                    className="ghost small"
+                    disabled={left <= 0}
+                    onClick={() => dispatch((g) => markRankSeen(g, rank))}
+                  >
+                    + Seen
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    disabled={seen <= 0}
+                    onClick={() => dispatch((g) => unmarkRankSeen(g, rank))}
+                  >
+                    − Seen
+                  </button>
+                  <span className={`status ${totalKnown === 4 ? 'captured' : left === 0 ? 'dead' : 'unseen'}`}>
+                    {totalKnown}/4 in play
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       <section className="panel">
-        <h2>Unresolved cards ({uniqueOpen.length})</h2>
-        {uniqueOpen.length ? (
+        <h2>Unresolved cards ({open.length})</h2>
+        {open.length ? (
           <div className="unresolved-list">
-            {uniqueOpen.map((entry) => (
+            {open.map((entry) => (
               <div className="unresolved-row" key={entry.id}>
                 <CardTile entry={entry} small />
                 <div>
@@ -121,7 +133,7 @@ export function TrackerScreen({ game, used, dispatch }: Props) {
             ))}
           </div>
         ) : (
-          <p className="hint">Every visible card has an exact identity.</p>
+          <p className="hint">Every entered card has a known rank.</p>
         )}
       </section>
 
@@ -157,7 +169,7 @@ export function TrackerScreen({ game, used, dispatch }: Props) {
               <strong>{i === 0 ? 'You' : `Player ${i + 1}`}</strong>
               <span>{pile.length} cards</span>
               <small>
-                {pile.filter((e) => e.kind === 'exact' && e.card.suit === 'oros').length} oros
+                {pile.filter((e) => e.kind === 'unknown').length} unresolved
               </small>
             </div>
           ))}
@@ -165,11 +177,11 @@ export function TrackerScreen({ game, used, dispatch }: Props) {
       </section>
 
       {resolveTarget ? (
-        <DeckPicker
+        <RankPicker
           title="Specify the card"
-          used={used}
-          onPickCard={(card) => {
-            if (dispatch((g) => resolveEntry(g, resolveTarget.id, card))) setResolveId(null);
+          remaining={remaining}
+          onPickRank={(rank) => {
+            if (dispatch((g) => resolveEntry(g, resolveTarget.id, rank))) setResolveId(null);
           }}
           onClose={() => setResolveId(null)}
         />

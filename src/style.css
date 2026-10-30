@@ -11,7 +11,6 @@
   --gold: #f2c464;
   --red: #e8636d;
   --blue: #6cb6ff;
-  --suit-green: #74d38d;
   --radius: 16px;
   --card-w: 64px;
   --card-h: 88px;
@@ -253,20 +252,6 @@ main {
   font-size: 16px;
 }
 
-.tile .tile-suit {
-  position: absolute;
-  right: 6px;
-  bottom: 3px;
-  font-size: 25px;
-  line-height: 1;
-}
-
-.tile.small .tile-suit {
-  right: 4px;
-  bottom: 2px;
-  font-size: 19px;
-}
-
 .tile .tile-value {
   position: absolute;
   left: 6px;
@@ -276,24 +261,22 @@ main {
   opacity: 0.62;
 }
 
-.tile.suit-oros {
-  color: #a9760b;
-  border-color: #d8b25c;
+.tile .tile-mark {
+  position: absolute;
+  right: 7px;
+  bottom: 5px;
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0.35;
 }
 
-.tile.suit-copas {
-  color: #b3312a;
+.tile.small .tile-mark {
+  right: 5px;
+  bottom: 3px;
+  font-size: 12px;
 }
 
-.tile.suit-espadas {
-  color: #215f9c;
-}
-
-.tile.suit-bastos {
-  color: #24784a;
-}
-
-.tile.suit-unknown {
+.tile.unknown-card {
   background: repeating-linear-gradient(
     135deg,
     #23383d,
@@ -688,6 +671,24 @@ label {
   padding: 12px;
 }
 
+.bonus {
+  border-color: rgba(242, 196, 100, 0.45);
+  background: rgba(242, 196, 100, 0.08);
+}
+
+.bonus-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.bonus p {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #ddcfae;
+}
+
 .notice {
   border-color: rgba(242, 196, 100, 0.35);
   background: rgba(242, 196, 100, 0.07);
@@ -835,49 +836,6 @@ label {
   gap: 10px;
 }
 
-.suit-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-}
-
-.suit-tab {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 9px 4px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.suit-tab span {
-  font-size: 18px;
-}
-
-.suit-tab.suit-oros span {
-  color: var(--gold);
-}
-.suit-tab.suit-copas span {
-  color: var(--red);
-}
-.suit-tab.suit-espadas span {
-  color: var(--blue);
-}
-.suit-tab.suit-bastos span {
-  color: var(--suit-green);
-}
-
-.suit-tab.active {
-  border-color: var(--accent);
-  background: rgba(84, 217, 156, 0.1);
-  color: var(--text);
-}
-
 .rank-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -912,60 +870,60 @@ label {
   color: var(--muted);
 }
 
-.rank-key.suit-oros small {
-  color: var(--gold);
-}
-.rank-key.suit-copas small {
-  color: var(--red);
-}
-.rank-key.suit-espadas small {
-  color: var(--blue);
-}
-.rank-key.suit-bastos small {
-  color: var(--suit-green);
+.rank-key small {
+  font-size: 11px;
 }
 
 /* ---------- tracker ---------- */
-.suit-block {
-  margin-top: 12px;
+.rank-tracker {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
 }
 
-.suit-heading {
+.rank-track-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px;
+}
+
+.rank-track-info {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rank-track-info strong {
   font-size: 12px;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  margin-bottom: 6px;
 }
 
-.suit-heading.suit-oros {
-  color: var(--gold);
-}
-.suit-heading.suit-copas {
-  color: var(--red);
-}
-.suit-heading.suit-espadas {
-  color: var(--blue);
-}
-.suit-heading.suit-bastos {
-  color: var(--suit-green);
+.rank-track-info span {
+  font-size: 10px;
+  color: var(--muted);
 }
 
-.tracker-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 7px;
+.rank-track-info small {
+  font-size: 10px;
+  color: var(--accent);
 }
 
-.tracker-cell {
-  display: grid;
-  justify-items: center;
-  gap: 3px;
+.rank-track-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  max-width: 118px;
 }
 
-.tracker-cell .tile {
-  width: 100%;
-  max-width: 58px;
-  height: 76px;
+.rank-track-actions .status {
+  flex-basis: 100%;
+  text-align: right;
 }
 
 .status {
@@ -1221,14 +1179,8 @@ footer {
 }
 
 @media (min-width: 620px) {
-  .score-cards {
-    grid-template-columns: repeat(3, 1fr);
-  }
-  .tracker-grid {
-    grid-template-columns: repeat(10, 1fr);
-  }
-  .tracker-cell .tile {
-    max-width: 54px;
+  .rank-tracker {
+    grid-template-columns: 1fr 1fr;
   }
 }
 
