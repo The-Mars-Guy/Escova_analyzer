@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Escova 15">
+  <rect width="512" height="512" rx="96" fill="#0b1418"/>
+  <rect x="84" y="64" width="344" height="384" rx="36" fill="#f6efdc" stroke="#d8b25c" stroke-width="10"/>
+  <text x="256" y="290" font-family="Segoe UI, Arial, sans-serif" font-size="188" font-weight="800" fill="#123329" text-anchor="middle">15</text>
+  <circle cx="256" cy="374" r="34" fill="none" stroke="#a9760b" stroke-width="10"/>
+  <circle cx="256" cy="374" r="12" fill="#a9760b"/>
+</svg>
