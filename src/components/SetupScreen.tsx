@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CardKey, SUIT_LABEL } from '../game/cards';
+import { CardKey } from '../game/cards';
 import { Entry } from '../game/entries';
 import { tableSum } from '../game/rules';
 import { PRESETS, PresetName } from '../game/config';
@@ -43,6 +43,9 @@ export function SetupScreen({ game, used, dispatch }: Props) {
   const choosePreset = (name: PresetName) => {
     dispatch((g) => setConfig(g, PRESETS[name].config));
   };
+
+  const isPreset = (name: PresetName) =>
+    JSON.stringify(game.config) === JSON.stringify(PRESETS[name].config);
 
   const zoneCards = (entries: Entry[]) =>
     entries.map((entry) => (
@@ -88,14 +91,16 @@ export function SetupScreen({ game, used, dispatch }: Props) {
         <div className="card-row">
           {game.table.length ? zoneCards(game.table) : <p className="empty">Tap below to add table cards.</p>}
         </div>
-        <div className="button-row">
-          <button type="button" className="secondary" onClick={() => setPicker('table')}>
-            + Table card
-          </button>
-          <button type="button" className="ghost" onClick={() => dispatch(addUnknownToTable)}>
-            + Unknown 0
-          </button>
-        </div>
+        {(game.midRound || game.table.length < 4) && !game.claimedInitial ? (
+          <div className="button-row">
+            <button type="button" className="secondary" onClick={() => setPicker('table')}>
+              + Table card
+            </button>
+            <button type="button" className="ghost" onClick={() => dispatch(addUnknownToTable)}>
+              + Unknown 0
+            </button>
+          </div>
+        ) : null}
         {!game.midRound && sum === 15 && game.table.length === 4 ? (
           <div className="notice gold">
             <strong>These four cards total 15.</strong>
@@ -133,9 +138,11 @@ export function SetupScreen({ game, used, dispatch }: Props) {
         <div className="card-row">
           {game.hand.length ? zoneCards(game.hand) : <p className="empty">Add the cards in your hand.</p>}
         </div>
-        <button type="button" className="secondary" onClick={() => setPicker('hand')}>
-          + Hand card
-        </button>
+        {game.hand.length < 3 ? (
+          <button type="button" className="secondary" onClick={() => setPicker('hand')}>
+            + Hand card
+          </button>
+        ) : null}
         <p className="hint">
           Tap a card to remove it. You can enter fewer than three cards when joining mid-round; unknown
           information never blocks play.
@@ -211,7 +218,7 @@ export function SetupScreen({ game, used, dispatch }: Props) {
             <button
               key={name}
               type="button"
-              className={`preset ${game.config.handEscova === PRESETS[name].config.handEscova && game.config.targetScore === PRESETS[name].config.targetScore ? 'active' : ''}`}
+              className={`preset ${isPreset(name) ? 'active' : ''}`}
               onClick={() => choosePreset(name)}
             >
               {PRESETS[name].label}
@@ -257,6 +264,3 @@ export function SetupScreen({ game, used, dispatch }: Props) {
   );
 }
 
-export function suitName(entry: Entry): string {
-  return entry.kind === 'exact' ? SUIT_LABEL[entry.card.suit] : '';
-}

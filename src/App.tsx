@@ -24,7 +24,6 @@ export function App() {
 
   const rec = useMemo(() => {
     if (game.phase !== 'playing' || game.turn !== 0) return null;
-    if (game.hand.some((e) => e.kind === 'unknown')) return null;
     return recommend(game, { seed: game.updatedAt % 2147483647 });
   }, [game]);
 

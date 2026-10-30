@@ -254,30 +254,22 @@ main {
 }
 
 .tile .tile-suit {
+  position: absolute;
+  right: 6px;
+  bottom: 3px;
   font-size: 25px;
   line-height: 1;
-  align-self: center;
-  margin-top: -2px;
 }
 
 .tile.small .tile-suit {
+  right: 4px;
+  bottom: 2px;
   font-size: 19px;
-}
-
-.tile .tile-face {
-  position: absolute;
-  left: 6px;
-  bottom: 4px;
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  opacity: 0.62;
 }
 
 .tile .tile-value {
   position: absolute;
-  right: 5px;
+  left: 6px;
   bottom: 4px;
   font-size: 9px;
   font-weight: 800;
@@ -348,15 +340,15 @@ main {
 }
 
 .status-strip span {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 800;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.35px;
   text-transform: uppercase;
   color: var(--muted);
   background: var(--bg-soft);
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 5px 9px;
+  padding: 4px 7px;
 }
 
 .status-strip .sweep-text {

@@ -62,11 +62,10 @@ export function seventyScore(entries: Entry[]): number {
   return [...best.values()].reduce((a, b) => a + b, 0);
 }
 
-function uniqueLeader(values: number[]): number | null {
+function leaders(values: number[]): number[] {
   const max = Math.max(...values);
-  if (max <= 0) return null;
-  const leaders = values.map((v, i) => (v === max ? i : -1)).filter((i) => i >= 0);
-  return leaders.length === 1 ? leaders[0] : null;
+  if (max <= 0) return [];
+  return values.map((v, i) => (v === max ? i : -1)).filter((i) => i >= 0);
 }
 
 export function scoreRound(input: ScoringInput): ScoringResult {
@@ -85,10 +84,14 @@ export function scoreRound(input: ScoringInput): ScoringResult {
   const allSevens = captured.map((pile) => countSevens(pile) === 4);
   const seventyScores = captured.map(seventyScore);
 
-  const cardsLeader = uniqueLeader(cards);
-  const orosLeader = uniqueLeader(oros);
-  const sevensLeader = uniqueLeader(sevens);
-  const seventyLeader = uniqueLeader(seventyScores);
+  const categoryLeaders = {
+    cards: leaders(cards),
+    oros: leaders(oros),
+    sevens: leaders(sevens),
+    seventy: leaders(seventyScores)
+  };
+  const winsCategory = (list: number[], player: number) =>
+    list.includes(player) && (list.length === 1 || config.awardTies);
 
   const players: PlayerScore[] = [];
   for (let i = 0; i < playerCount; i += 1) {
@@ -103,13 +106,13 @@ export function scoreRound(input: ScoringInput): ScoringResult {
     if (handBonus[i] > 0 && config.handEscova !== 0) {
       add(`Hand escova ×${handBonus[i]}`, handBonus[i] * config.handEscova);
     }
-    if (cardsLeader === i) add('Most cards', config.mostCards);
-    if (orosLeader === i) add('Most oros', config.mostOros);
-    if (sevensLeader === i) add('Most sevens', config.mostSevens);
+    if (winsCategory(categoryLeaders.cards, i)) add('Most cards', config.mostCards);
+    if (winsCategory(categoryLeaders.oros, i)) add('Most oros', config.mostOros);
+    if (winsCategory(categoryLeaders.sevens, i)) add('Most sevens', config.mostSevens);
     if (sevenOfOros[i]) add('7 de oros', config.sevenOfOros);
     if (allOros[i]) add('All oros', config.allOros);
     if (allSevens[i]) add('All sevens', config.allSevens);
-    if (seventyLeader === i && seventyScores[i] > 0) {
+    if (seventyScores[i] > 0 && winsCategory(categoryLeaders.seventy, i)) {
       add(`La setenta (${seventyScores[i]})`, config.seventy);
     }
 
@@ -138,10 +141,7 @@ export function scoreRound(input: ScoringInput): ScoringResult {
   if (uncertain) {
     notes.push('Some captured cards are unknown, so oros/sevens totals and bonuses are lower bounds.');
   }
-  const tied = [cards, oros, sevens, seventyScores].some((arr) => {
-    const max = Math.max(...arr);
-    return max > 0 && arr.filter((v) => v === max).length > 1;
-  });
+  const tied = Object.values(categoryLeaders).some((list) => list.length > 1);
   if (!config.awardTies && tied) {
     notes.push('A category is tied, so no point is awarded for it.');
   }

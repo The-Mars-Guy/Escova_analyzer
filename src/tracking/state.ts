@@ -28,6 +28,7 @@ export interface Game {
   sweeps: number[];
   handBonus: number[];
   handBonusDeclared: string[];
+  handBonusAwarded: boolean;
   turns: TurnRecord[];
   lastCapture: Player | null;
   unknownDiscards: number;
@@ -68,6 +69,7 @@ export function initialGame(overrides: Partial<Game> = {}): Game {
     sweeps: [0, 0, 0],
     handBonus: [0, 0, 0],
     handBonusDeclared: [],
+    handBonusAwarded: false,
     turns: [],
     lastCapture: null,
     unknownDiscards: 0,
@@ -197,7 +199,8 @@ export function setPriorScore(g: Game, player: Player, points: number): Game {
 }
 
 export function setConfig(g: Game, patch: Partial<ScoringConfig>): Game {
-  return touch({ ...g, config: { ...g.config, ...patch } });
+  const next = { ...g, config: { ...g.config, ...patch } };
+  return touch(next.config.autoHandEscova ? syncAutoHandEscova(next) : next);
 }
 
 export function setMidRound(g: Game, midRound: boolean): Game {
@@ -249,7 +252,7 @@ export function handEscovaInfo(g: Game): HandEscovaInfo {
   return {
     possible: isThreeCardEscova(g.hand),
     total: handTotal(g.hand),
-    declared: g.handBonusDeclared.includes(signature),
+    declared: g.handBonusAwarded || g.handBonusDeclared.includes(signature),
     signature
   };
 }
@@ -261,18 +264,20 @@ export function declareHandEscova(g: Game): Game {
   return touch({
     ...g,
     handBonus: g.handBonus.map((n, i) => (i === 0 ? n + 1 : n)),
-    handBonusDeclared: [...g.handBonusDeclared, info.signature]
+    handBonusDeclared: [...g.handBonusDeclared, info.signature],
+    handBonusAwarded: true
   });
 }
 
 function syncAutoHandEscova(g: Game): Game {
-  if (!g.config.autoHandEscova) return g;
+  if (!g.config.autoHandEscova || g.handBonusAwarded) return g;
   const info = handEscovaInfo(g);
   if (!info.possible || info.declared) return g;
   return {
     ...g,
     handBonus: g.handBonus.map((n, i) => (i === 0 ? n + 1 : n)),
-    handBonusDeclared: [...g.handBonusDeclared, info.signature]
+    handBonusDeclared: [...g.handBonusDeclared, info.signature],
+    handBonusAwarded: true
   };
 }
 
@@ -291,6 +296,7 @@ export function startGame(g: Game): Game {
     deal: g.deal,
     startDeal: g.deal,
     handBonusDeclared: [],
+    handBonusAwarded: false,
     updatedAt: Date.now()
   };
   return touch(syncAutoHandEscova(next));
@@ -332,12 +338,15 @@ export function playCard(g: Game, entryId: string, captureIds: string[]): Game {
   }
 
   const sweep = isSweep(g.table, capture);
-  const table = g.table.filter((e) => !capture.some((c) => c.id === e.id));
+  const remaining = g.table.filter((e) => !capture.some((c) => c.id === e.id));
+  const discarded = capture.length === 0;
   const next: Game = {
     ...g,
     hand: g.hand.filter((e) => e.id !== entryId),
-    table,
-    captured: g.captured.map((pile, i) => (i === 0 ? [...pile, ...capture, entry] : pile)),
+    table: discarded ? [...remaining, entry] : remaining,
+    captured: g.captured.map((pile, i) =>
+      i === 0 && !discarded ? [...pile, ...capture, entry] : pile
+    ),
     sweeps: g.sweeps.map((n, i) => (i === 0 && sweep ? n + 1 : n)),
     turn: 1,
     turns: [...g.turns, { player: 0, played: entry, captured: capture, sweep, deal: g.deal, inferredValue: null }],
@@ -371,6 +380,11 @@ export function recordOpponentPlay(g: Game, input: PlayedInput, captureIds: stri
     played = exactEntry(input.card);
   } else if (input.kind === 'rank') {
     if (!isRank(input.rank)) throw new Error('Invalid rank.');
+    const used = usedExactKeys(g);
+    const anySuit = (['oros', 'copas', 'espadas', 'bastos'] as const).some(
+      (suit) => !used.has(cardKey({ suit, rank: input.rank }))
+    );
+    if (!anySuit) throw new Error('Every card of that rank is already accounted for.');
     played = rankEntry(input.rank);
   } else {
     played = unknownEntry();
@@ -398,9 +412,17 @@ export function recordOpponentPlay(g: Game, input: PlayedInput, captureIds: stri
     inferredValue = inferred;
   }
 
+  if (played.kind !== 'unknown' && capture.length === 0) {
+    const playedValue = entryValue(played);
+    if (playedValue !== null && legalCaptures(g.table, playedValue).length > 0) {
+      throw new Error('That card can capture; select the captured table cards.');
+    }
+  }
+
   const sweep = isSweep(g.table, capture);
   const table = g.table.filter((e) => !capture.some((c) => c.id === e.id));
-  const playedToTable = played.kind === 'unknown' && capture.length === 0;
+  const playedToTable = capture.length === 0;
+  const unknownDiscard = played.kind === 'unknown' && capture.length === 0;
   const next: Game = {
     ...g,
     table: playedToTable ? [...table, played] : table,
@@ -411,7 +433,7 @@ export function recordOpponentPlay(g: Game, input: PlayedInput, captureIds: stri
     turn: ((player + 1) % 3) as Player,
     turns: [...g.turns, { player, played, captured: capture, sweep, deal: g.deal, inferredValue }],
     lastCapture: capture.length > 0 ? player : g.lastCapture,
-    unknownDiscards: g.unknownDiscards + (playedToTable ? 1 : 0),
+    unknownDiscards: g.unknownDiscards + (unknownDiscard ? 1 : 0),
     updatedAt: Date.now()
   };
   return next;
@@ -447,7 +469,8 @@ export function nextDeal(g: Game): Game {
     deal: g.deal + 1,
     hand: [],
     opponentStartHand: 3,
-    midRound: false
+    midRound: false,
+    handBonusAwarded: false
   });
 }
 
@@ -471,7 +494,7 @@ export function finishGame(g: Game): Game {
   return touch({
     ...g,
     phase: 'finished',
-    table: [],
+    table: recipient === null ? g.table : [],
     captured:
       recipient === null
         ? g.captured

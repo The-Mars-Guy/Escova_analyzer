@@ -87,6 +87,24 @@ describe('playing', () => {
     expect(() => playCard(g, seven.id, [])).toThrow(/must capture/i);
   });
 
+  it('puts a discard on the table, not in the capture pile', () => {
+    const g = playingGame({ hand: [e('oros', 1)], table: [e('oros', 12)] });
+    const next = playCard(g, g.hand[0].id, []);
+    expect(next.table).toHaveLength(2);
+    expect(next.captured[0]).toHaveLength(0);
+    expect(next.turns[0].captured).toHaveLength(0);
+    expect(next.lastCapture).toBeNull();
+  });
+
+  it('puts a known opponent discard on the table', () => {
+    const g = playingGame({ turn: 1, table: [e('oros', 5)] });
+    const next = recordOpponentPlay(g, { kind: 'exact', card: card('bastos', 6) }, []);
+    expect(next.table).toHaveLength(2);
+    expect(next.captured[1]).toHaveLength(0);
+    expect(next.unknownDiscards).toBe(0);
+    expect(next.turn).toBe(2);
+  });
+
   it('increments the turn through all three players', () => {
     const g = playingGame({ hand: [e('oros', 1), e('copas', 2), e('espadas', 3)] });
     let next = playCard(g, g.hand[0].id, []);
@@ -132,6 +150,13 @@ describe('unknown cards', () => {
     expect(usedExactKeys(resolved).has(cardKey(card('bastos', 7)))).toBe(true);
   });
 
+  it('rejects an opponent discard when the played card can capture', () => {
+    const g = playingGame({ turn: 1, table: [e('oros', 10)] });
+    expect(() => recordOpponentPlay(g, { kind: 'exact', card: card('copas', 7) }, [])).toThrow(
+      /can capture/i
+    );
+  });
+
   it('accepts a rank-only opponent card', () => {
     const g = playingGame({ turn: 1, table: [e('oros', 6)] });
     const next = recordOpponentPlay(g, { kind: 'rank', rank: 11 }, g.table.map((x) => x.id));
@@ -153,6 +178,17 @@ describe('hand escova', () => {
     const declared = declareHandEscova(g);
     expect(declared.handBonus[0]).toBe(1);
     expect(() => declareHandEscova(declared)).toThrow(/already/i);
+  });
+
+  it('cannot double-award after a rank-only hand is resolved', () => {
+    const g = playingGame({ hand });
+    const declared = declareHandEscova(g);
+    const rankTen = declared.hand.find((x) => x.kind === 'rank' && x.rank === 10);
+    expect(rankTen).toBeDefined();
+    const resolved = resolveEntry(declared, rankTen!.id, card('oros', 10));
+    expect(handEscovaInfo(resolved).declared).toBe(true);
+    expect(() => declareHandEscova(resolved)).toThrow(/already/i);
+    expect(resolved.handBonus[0]).toBe(1);
   });
 
   it('auto-records when configured', () => {

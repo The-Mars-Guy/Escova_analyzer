@@ -57,6 +57,25 @@ describe('scoring', () => {
     expect(tied.players[1].lines.some((l) => l.label === 'Most oros')).toBe(false);
   });
 
+  it('can award tied categories when the house rule enables it', () => {
+    const captured = [
+      pile([['oros', 1], ['oros', 2]]),
+      pile([['oros', 3], ['oros', 4]]),
+      pile([['bastos', 5]])
+    ];
+    const result = scoreRound({
+      captured,
+      sweeps: [0, 0, 0],
+      handBonus: [0, 0, 0],
+      priorScores: [0, 0, 0],
+      config: { ...HOUSE_CONFIG, mostCards: 1, mostOros: 1, awardTies: true }
+    });
+    expect(result.players[0].lines.filter((l) => l.label === 'Most cards')).toHaveLength(1);
+    expect(result.players[1].lines.filter((l) => l.label === 'Most cards')).toHaveLength(1);
+    expect(result.players[0].roundPoints).toBe(2);
+    expect(result.players[1].roundPoints).toBe(2);
+  });
+
   it('computes la setenta only with all four suits', () => {
     const fourSuits = pile([
       ['oros', 7],

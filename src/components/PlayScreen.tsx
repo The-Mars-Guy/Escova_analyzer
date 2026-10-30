@@ -11,6 +11,7 @@ import {
   declareHandEscova,
   expectedPlaysThisDeal,
   finishGame,
+  handEscovaInfo,
   handTotal,
   nextDeal,
   playCard,
@@ -68,11 +69,14 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
   const finishing = canFinish(game);
   const info = informationPercent(game);
   const unseen = unseenCount(game);
+  const unknownOnTable = game.table.filter((e) => e.kind === 'unknown').length;
+  const handBonus = handEscovaInfo(game);
 
   const selectedEntry = game.hand.find((e) => e.id === selectedId) ?? null;
   const myMoves = rec && selectedEntry ? rec.moves.filter((m) => m.entry.id === selectedEntry.id) : [];
   const captureOptions = myMoves.filter((m) => m.isCapture);
   const canDiscard = myMoves.some((m) => !m.isCapture);
+  const canPlaySelected = captureOptions.length > 0 || canDiscard;
   const playedValue = selectedEntry ? (selectedEntry.kind === 'exact' ? cardValue(selectedEntry.card) : selectedEntry.kind === 'rank' ? rankValue(selectedEntry.rank) : null) : null;
 
   const selectHand = (entry: Entry) => {
@@ -174,7 +178,7 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
         </section>
       ) : null}
 
-      {rec?.bonusAvailable ? (
+      {handBonus.possible && !handBonus.declared ? (
         <section className="panel bonus">
           <div className="bonus-head">
             <span className="badge gold">+{game.config.handEscova} PTS</span>
@@ -194,7 +198,7 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
         </section>
       ) : null}
 
-      {rec?.handEscova.possible && !rec.bonusAvailable ? (
+      {handBonus.possible && handBonus.declared ? (
         <section className="panel bonus recorded">
           <span className="badge gold">RECORDED</span>
           <p>Hand escova recorded for this hand ({game.config.handEscova} pts).</p>
@@ -204,7 +208,10 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
       {unknownHand ? (
         <section className="panel notice">
           <h2>Unknown card in your hand</h2>
-          <p>Specify it to unlock exact recommendations. You can still play it if you know its rank.</p>
+          <p>
+            Specify it to unlock recommendations for that card. Recommendations below still cover your
+            other known cards.
+          </p>
           <button type="button" className="secondary" onClick={() => setResolveId(unknownHand.id)}>
             Specify this card
           </button>
@@ -321,7 +328,9 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
                 key={entry.id}
                 entry={entry}
                 selected={selectedId === entry.id}
-                onClick={() => (myTurn ? selectHand(entry) : setResolveId(entry.id))}
+                onClick={() =>
+                  entry.kind === 'unknown' ? setResolveId(entry.id) : myTurn ? selectHand(entry) : undefined
+                }
               />
             ))
           ) : (
@@ -357,11 +366,16 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
                   No capture
                 </button>
               ) : null}
-              {!captureOptions.length && !canDiscard ? <span className="hint">No legal capture.</span> : null}
+              {!canPlaySelected ? (
+                <span className="hint">
+                  A capture is mandatory and this card cannot make 15. Choose another card.
+                </span>
+              ) : null}
             </div>
             <button
               type="button"
               className="primary wide"
+              disabled={!canPlaySelected}
               onClick={() => dispatch((g) => playCard(g, selectedEntry.id, captureIds))}
             >
               {captureIds.length
@@ -420,19 +434,14 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
                         .join(' + ')}
                     </button>
                   ))}
-                  <button
-                    type="button"
-                    className={`chip ${opponentCaptureIds.length === 0 ? 'active' : ''}`}
-                    onClick={() => setOpponentCaptureIds([])}
-                  >
-                    Discard
-                  </button>
                 </div>
               ) : pending.kind === 'unknown' ? (
                 <p className="hint">
                   Select the table cards they captured. The app will infer the played card's value from 15.
                 </p>
-              ) : null}
+              ) : (
+                <p className="hint">No legal capture — confirm records this as a discard.</p>
+              )}
               {pendingKnownValue !== null ? (
                 <p className="hint">
                   Total: {pendingKnownValue + unknownTotal} / 15
@@ -451,9 +460,13 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
                   type="button"
                   className="primary"
                   disabled={
-                    pendingKnownValue !== null &&
-                    opponentCaptureIds.length > 0 &&
-                    pendingKnownValue + unknownTotal !== 15
+                    (pendingKnownValue !== null &&
+                      opponentOptions.length > 0 &&
+                      opponentCaptureIds.length === 0) ||
+                    (pendingKnownValue !== null &&
+                      opponentCaptureIds.length > 0 &&
+                      pendingKnownValue + unknownTotal !== 15) ||
+                    (pending.kind === 'unknown' && opponentCaptureIds.length > 0 && inferredRank === null)
                   }
                   onClick={() => dispatch((g) => recordOpponentPlay(g, pending, opponentCaptureIds))}
                 >
@@ -468,9 +481,9 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
         </section>
       ) : null}
 
-      {game.unknownDiscards > 0 ? (
+      {unknownOnTable > 0 ? (
         <section className="panel notice">
-          <h2>Unknown cards on the table: {game.unknownDiscards}</h2>
+          <h2>Unknown cards on the table: {unknownOnTable}</h2>
           <p>
             Recommendations still work around known cards. Resolve the unknown cards in the Tracker when
             they become visible so probabilities tighten.
