@@ -78,6 +78,17 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
   const canDiscard = myMoves.some((m) => !m.isCapture);
   const canPlaySelected = captureOptions.length > 0 || canDiscard;
   const playedValue = selectedEntry ? (selectedEntry.kind === 'exact' ? cardValue(selectedEntry.card) : selectedEntry.kind === 'rank' ? rankValue(selectedEntry.rank) : null) : null;
+  const selectedCaptureEntries = captureIds
+    .map((id) => game.table.find((e) => e.id === id))
+    .filter((e): e is Entry => Boolean(e));
+  const selectedCaptureTotal = playedValue !== null ? playedValue + captureTotal(selectedCaptureEntries) : null;
+  const captureSelectionMatches =
+    captureIds.length > 0 &&
+    captureOptions.some(
+      (m) => m.captureIds.length === captureIds.length && m.captureIds.every((id) => captureIds.includes(id))
+    );
+  const selectionValid = captureIds.length === 0 ? canDiscard : captureSelectionMatches;
+  const canCommitSelection = canPlaySelected && selectionValid;
 
   const selectHand = (entry: Entry) => {
     setSelectedId(entry.id);
@@ -303,7 +314,7 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
                   entry={entry}
                   selected={active}
                   muted={!myTurn && !pending}
-                  onClick={() => toggleTable(entry.id)}
+                  onClick={entry.kind === 'unknown' ? undefined : () => toggleTable(entry.id)}
                 />
               );
             })
@@ -371,11 +382,16 @@ export function PlayScreen({ game, rec, used, dispatch }: Props) {
                   A capture is mandatory and this card cannot make 15. Choose another card.
                 </span>
               ) : null}
+              {captureIds.length > 0 && !captureSelectionMatches && selectedCaptureTotal !== null ? (
+                <span className="hint">
+                  Selected capture totals {selectedCaptureTotal} / 15. Add or remove table cards.
+                </span>
+              ) : null}
             </div>
             <button
               type="button"
               className="primary wide"
-              disabled={!canPlaySelected}
+              disabled={!canCommitSelection}
               onClick={() => dispatch((g) => playCard(g, selectedEntry.id, captureIds))}
             >
               {captureIds.length

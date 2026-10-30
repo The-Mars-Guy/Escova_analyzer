@@ -14,6 +14,7 @@ import {
   initialGame,
   nextDeal,
   playCard,
+  removeEntry,
   recordOpponentPlay,
   resolveEntry,
   startGame,
@@ -198,6 +199,19 @@ describe('hand escova', () => {
     next = addCard(next, 'hand', card('espadas', 2));
     expect(next.handBonus[0]).toBe(1);
     expect(next.handBonusDeclared).toHaveLength(1);
+  });
+
+  it('rolls the auto bonus back if the entered hand changes before play', () => {
+    const g = playingGame({ config: { ...HOUSE_CONFIG, autoHandEscova: true } });
+    let next = addCard(g, 'hand', card('oros', 10));
+    next = addCard(next, 'hand', card('copas', 5));
+    next = addCard(next, 'hand', card('espadas', 2));
+    expect(next.handBonus[0]).toBe(1);
+    const removed = removeEntry(next, next.hand[0].id);
+    expect(removed.handBonus[0]).toBe(0);
+    expect(removed.handBonusAwarded).toBe(false);
+    const restored = addCard(removed, 'hand', card('oros', 10));
+    expect(restored.handBonus[0]).toBe(1);
   });
 });
 

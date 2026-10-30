@@ -1,5 +1,7 @@
 # Escova 15 — Pocket Strategy Assistant
 
+**Live app:** https://the-mars-guy.github.io/Escova_analyzer/
+
 A mobile-first web assistant for the **physical** game Escova de 15 (Brazilian Escova / Spanish Escoba).
 You play with real cards; the app tracks what is visible and recommends the best card to play.
 

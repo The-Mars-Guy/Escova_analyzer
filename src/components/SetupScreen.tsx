@@ -234,7 +234,7 @@ export function SetupScreen({ game, used, dispatch }: Props) {
 
       <button
         type="button"
-        className="primary sticky-action"
+        className="primary wide"
         disabled={!ready}
         onClick={() => dispatch(startGame)}
       >

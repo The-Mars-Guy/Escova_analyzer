@@ -154,11 +154,16 @@ export function addRankToTable(g: Game, rank: Rank): Game {
 export function removeEntry(g: Game, id: string): Game {
   if (g.phase === 'finished') throw new Error('The game is finished.');
   const strip = (list: Entry[]) => list.filter((e) => e.id !== id);
+  const wasInHand = g.hand.some((e) => e.id === id);
+  const rollbackBonus = wasInHand && g.handBonusAwarded && playsThisDeal(g, 0) === 0;
   return touch({
     ...g,
     hand: strip(g.hand),
     table: strip(g.table),
-    captured: g.captured.map((pile) => strip(pile))
+    captured: g.captured.map((pile) => strip(pile)),
+    handBonus: rollbackBonus ? g.handBonus.map((n, i) => (i === 0 ? Math.max(0, n - 1) : n)) : g.handBonus,
+    handBonusDeclared: rollbackBonus ? [] : g.handBonusDeclared,
+    handBonusAwarded: rollbackBonus ? false : g.handBonusAwarded
   });
 }
 
